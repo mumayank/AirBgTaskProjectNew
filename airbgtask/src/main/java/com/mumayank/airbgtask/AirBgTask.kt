@@ -1,6 +1,7 @@
 package com.mumayank.airbgtask
 
 import android.app.Activity
+import android.content.Context
 import org.jetbrains.anko.doAsync
 import org.jetbrains.anko.uiThread
 import java.lang.ref.WeakReference
@@ -26,6 +27,52 @@ class AirBgTask {
     companion object {
         const val TASK_SUCCESSFUL = true
         const val TASK_NOT_SUCCESSFUL = false
+
+        /**
+         * Ideally, don't use this as the context reference is becoming non-null even in null situations
+         * Use it where you can't use the activity itself to manage airBgTask lifecycle
+         */
+        fun executeWithContext(
+            context: Context?,
+            doTaskInBackground:(()->Boolean)?,
+            onSuccess:(()->Unit)? = null,
+            onFailure:((reasonString: String)->Unit)? = null,
+            onCompleted:(()->Unit)? = null
+        ) {
+            if (doTaskInBackground == null) {
+                return
+            }
+
+            doAsync {
+                try {
+                    val result = doTaskInBackground.invoke()
+                    uiThread {
+                        if (result == TASK_SUCCESSFUL) {
+                            if (context == null) {
+                                return@uiThread
+                            }
+                            onSuccess?.invoke()
+                            onCompleted?.invoke()
+                        } else {
+                            if (context == null) {
+                                return@uiThread
+                            }
+                            onFailure?.invoke("AirBgTask error: doTaskInBackground() returned TASK_NOT_SUCCESSFUL")
+                            onCompleted?.invoke()
+                        }
+                    }
+                } catch (e: Exception) {
+                    uiThread {
+                        if (context == null) {
+                            return@uiThread
+                        }
+                        onFailure?.invoke("error: ${e.message ?: ""}")
+                        onCompleted?.invoke()
+                    }
+                }
+
+            }
+        }
     }
 
     var activityWeakReference: WeakReference<Activity>? = null
@@ -33,6 +80,10 @@ class AirBgTask {
     var onSuccess:(()->Unit)? = null
     var onFailure:((reasonString: String)->Unit)? = null
     var onCompleted:(()->Unit)? = null
+
+    fun onCreate(activity: Activity) {
+        activityWeakReference = WeakReference(activity)
+    }
 
     fun define(
         doTaskInBackground:(()->Boolean)?,
@@ -44,15 +95,6 @@ class AirBgTask {
         this.onSuccess = onSuccess
         this.onFailure = onFailure
         this.onCompleted = onCompleted
-    }
-
-    fun onCreate(activity: Activity) {
-        activityWeakReference = WeakReference(activity)
-
-    }
-
-    fun onDestroy() {
-        activityWeakReference = null
     }
 
     fun execute() {
@@ -90,5 +132,19 @@ class AirBgTask {
             }
 
         }
+    }
+
+    fun execute(
+        doTaskInBackground:(()->Boolean)?,
+        onSuccess:(()->Unit)? = null,
+        onFailure:((reasonString: String)->Unit)? = null,
+        onCompleted:(()->Unit)? = null
+    ) {
+        define(doTaskInBackground, onSuccess, onFailure, onCompleted)
+        execute()
+    }
+
+    fun onDestroy() {
+        activityWeakReference = null
     }
 }
